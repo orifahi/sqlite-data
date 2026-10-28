@@ -84,6 +84,9 @@
     ///   - defaultZone: The zone for all records to be stored in.
     ///   - startImmediately: Determines if the sync engine starts right away or requires an
     ///     explicit call to ``start()``. By default this argument is `true`.
+    ///   - automaticallySync: Determines if CloudKit's engine schedules its own sends and fetches
+    ///     (`CKSyncEngine.Configuration.automaticallySync`). When `false`, nothing is sent or
+    ///     fetched until ``sendChanges(_:)`` or ``fetchChanges(_:)`` is called. By default `true`.
     ///   - delegate: A delegate object that can be notified of events and override default sync
     ///     engine behavior.
     ///   - logger: The logger used to log events in the sync engine. By default a `.disabled`
@@ -98,6 +101,7 @@
       containerIdentifier: String? = nil,
       defaultZone: CKRecordZone = CKRecordZone(zoneName: "co.pointfree.SQLiteData.defaultZone"),
       startImmediately: Bool? = nil,
+      automaticallySync: Bool = true,
       delegate: (any SyncEngineDelegate)? = nil,
       logger: Logger = isTesting
         ? Logger(.disabled) : Logger(subsystem: "SQLiteData", category: "CloudKit")
@@ -173,31 +177,31 @@
         container: container,
         defaultZone: defaultZone,
         defaultSyncEngines: { metadatabase, syncEngine in
-          (
-            private: CKSyncEngine(
-              CKSyncEngine.Configuration(
-                database: container.privateCloudDatabase,
-                stateSerialization: try? metadatabase.read { db in
-                  try StateSerialization
-                    .find(#bind(.private))
-                    .select(\.data)
-                    .fetchOne(db)
-                },
-                delegate: syncEngine
-              )
-            ),
-            shared: CKSyncEngine(
-              CKSyncEngine.Configuration(
-                database: container.sharedCloudDatabase,
-                stateSerialization: try? metadatabase.read { db in
-                  try StateSerialization
-                    .find(#bind(.shared))
-                    .select(\.data)
-                    .fetchOne(db)
-                },
-                delegate: syncEngine
-              )
-            )
+          var privateConfiguration = CKSyncEngine.Configuration(
+            database: container.privateCloudDatabase,
+            stateSerialization: try? metadatabase.read { db in
+              try StateSerialization
+                .find(#bind(.private))
+                .select(\.data)
+                .fetchOne(db)
+            },
+            delegate: syncEngine
+          )
+          privateConfiguration.automaticallySync = automaticallySync
+          var sharedConfiguration = CKSyncEngine.Configuration(
+            database: container.sharedCloudDatabase,
+            stateSerialization: try? metadatabase.read { db in
+              try StateSerialization
+                .find(#bind(.shared))
+                .select(\.data)
+                .fetchOne(db)
+            },
+            delegate: syncEngine
+          )
+          sharedConfiguration.automaticallySync = automaticallySync
+          return (
+            private: CKSyncEngine(privateConfiguration),
+            shared: CKSyncEngine(sharedConfiguration)
           )
         },
         userDatabase: userDatabase,
